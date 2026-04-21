@@ -1,0 +1,79 @@
+name: Build Taiga Images
+
+on:
+  push:
+    branches: [stable]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  ORG: s0mina
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: taiga-back
+            repo: s0mina/taiga-back
+          - name: taiga-front
+            repo: s0mina/taiga-front
+          - name: taiga-events
+            repo: s0mina/taiga-events
+          - name: taiga-protected
+            repo: s0mina/taiga-protected
+
+    steps:
+      - name: Checkout taiga-docker
+        uses: actions/checkout@v4
+        with:
+          path: taiga-docker
+
+      - name: Checkout ${{ matrix.name }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: stable
+          path: ${{ matrix.name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,amd64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.ORG }}/${{ matrix.name }}
+          tags: |
+            type=sha,format=long,prefix=
+            type=raw,value=latest
+
+      - name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.name }}
+          file: ${{ matrix.name }}/docker/Dockerfile
+          push: true
+          platforms: linux/arm64,linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
